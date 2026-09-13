@@ -1,0 +1,1133 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>公文解壓縮與智能辨識重命名工作台</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- JSZip for in-browser unzipping and zip generation -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <!-- FileSaver.js for easy client-side file downloads -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+  <!-- PDF.js for client-side PDF text extraction -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script>
+    // Configure PDF.js worker
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            gov: {
+              50: '#f0f7ff',
+              100: '#e0effe',
+              600: '#0284c7',
+              700: '#0369a1',
+              800: '#075985',
+              900: '#0c4a6e'
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    /* Custom scrollbar and modal styling */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #f1f5f9; }
+    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+    .fade-in { animation: fadeIn 0.2s ease-in-out; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col font-sans">
+
+  <!-- Top Header -->
+  <header class="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-sm">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3.5 flex flex-wrap items-center justify-between gap-4">
+      <div class="flex items-center space-x-3">
+        <div class="w-10 h-10 rounded-xl bg-gov-700 text-white flex items-center justify-center shadow-md shadow-gov-700/20">
+          <i data-lucide="file-archive" class="w-5 h-5"></i>
+        </div>
+        <div>
+          <div class="flex items-center space-x-2">
+            <h1 class="text-lg font-bold text-slate-900 tracking-tight">公文智能解壓縮與批次辨識重命名工作台</h1>
+            <span class="text-xs bg-gov-100 text-gov-800 font-medium px-2 py-0.5 rounded-full border border-gov-200">公務專用</span>
+          </div>
+          <p class="text-xs text-slate-500">支援臺灣電子公文交換格式 (.di / .xml) 及 PDF 公文本文解析</p>
+        </div>
+      </div>
+
+      <div class="flex items-center space-x-2.5">
+        <!-- Safe Badge -->
+        <div class="hidden md:flex items-center text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1.5 rounded-lg shadow-sm">
+          <i data-lucide="shield-check" class="w-4 h-4 mr-1.5 text-emerald-600"></i>
+          <span>100% 瀏覽器本地運算・公文絕不外傳</span>
+        </div>
+        <!-- Demo Pack Button -->
+        <button id="btn-load-demo" class="text-xs flex items-center bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium px-3 py-1.5 rounded-lg transition border border-slate-300">
+          <i data-lucide="sparkles" class="w-3.5 h-3.5 mr-1.5 text-amber-500"></i>
+          載入範例公文包
+        </button>
+        <!-- Reset All Button -->
+        <button id="btn-clear-all" class="text-xs flex items-center bg-white hover:bg-red-50 text-red-600 font-medium px-3 py-1.5 rounded-lg transition border border-red-200">
+          <i data-lucide="trash-2" class="w-3.5 h-3.5 mr-1 text-red-500"></i>
+          清空列表
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Content Container -->
+  <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+
+    <!-- Top Action Cards Grid: Upload Zone + Naming Rule Formatter -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+      <!-- Upload Zone (5 cols) -->
+      <section class="lg:col-span-5 bg-white rounded-2xl border border-slate-200 p-5 shadow-sm flex flex-col justify-between">
+        <div>
+          <div class="flex items-center justify-between mb-2">
+            <h2 class="text-sm font-bold text-slate-800 flex items-center">
+              <i data-lucide="upload-cloud" class="w-4 h-4 mr-2 text-gov-600"></i>
+              檔案匯入與公文解壓縮
+            </h2>
+            <span class="text-xs text-slate-400">支援 .ZIP, .PDF, .DI, .XML</span>
+          </div>
+          <p class="text-xs text-slate-500 mb-4">
+            拖曳單個或多個公文 <b>.ZIP 壓縮包</b>，或直接匯入公文 PDF / DI 檔案。系統將自動深層解壓並辨識。
+          </p>
+
+          <!-- Drop Box -->
+          <div id="drop-zone" class="border-2 border-dashed border-slate-300 hover:border-gov-600 bg-slate-50/50 hover:bg-gov-50/30 rounded-xl p-6 text-center cursor-pointer transition flex flex-col items-center justify-center min-h-[170px]">
+            <input type="file" id="file-input" class="hidden" multiple accept=".zip,.pdf,.xml,.di,.txt">
+            <div class="w-12 h-12 bg-white rounded-full flex items-center justify-center shadow-sm border border-slate-200 mb-3 group-hover:scale-105 transition">
+              <i data-lucide="file-plus-2" class="w-6 h-6 text-gov-600"></i>
+            </div>
+            <p class="text-sm font-semibold text-slate-700 mb-1">點擊選擇檔案 或 拖曳檔案至此</p>
+            <p class="text-xs text-slate-400">支援公文交換打包檔、函稿、開會通知單等</p>
+          </div>
+        </div>
+
+        <div class="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
+          <span id="stat-file-count">已匯入：0 筆檔案</span>
+          <span id="stat-recognized-count" class="text-gov-700 font-medium">已辨識：0 筆</span>
+        </div>
+      </section>
+
+      <!-- Renaming Rule Configurator (7 cols) -->
+      <section class="lg:col-span-7 bg-white rounded-2xl border border-slate-200 p-5 shadow-sm flex flex-col justify-between">
+        <div>
+          <div class="flex items-center justify-between mb-3">
+            <div class="flex items-center space-x-2">
+              <i data-lucide="tag" class="w-4 h-4 text-gov-600"></i>
+              <h2 class="text-sm font-bold text-slate-800">檔名規則與自訂變數配置</h2>
+            </div>
+            <!-- Preset Selector -->
+            <div class="flex items-center space-x-1 text-xs">
+              <span class="text-slate-400">快速套用：</span>
+              <button class="rule-preset px-2 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-600" data-format="[{agency}] {doc_no}_{subject}">標準公文格式</button>
+              <button class="rule-preset px-2 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-600" data-format="{date}_{agency}_{doc_no}">收文排序格式</button>
+              <button class="rule-preset px-2 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-600" data-format="{doc_no}_{subject}">精簡字號主旨</button>
+            </div>
+          </div>
+
+          <!-- Variable Tags -->
+          <div class="mb-3">
+            <label class="block text-xs font-semibold text-slate-600 mb-1.5">點選標籤快速插入規則格式：</label>
+            <div class="flex flex-wrap gap-1.5">
+              <button class="tag-btn text-xs bg-slate-100 hover:bg-gov-100 hover:text-gov-800 text-slate-700 font-mono px-2 py-1 rounded-md border border-slate-200 transition" data-tag="{agency}">+ {agency} 機關</button>
+              <button class="tag-btn text-xs bg-slate-100 hover:bg-gov-100 hover:text-gov-800 text-slate-700 font-mono px-2 py-1 rounded-md border border-slate-200 transition" data-tag="{doc_no}">+ {doc_no} 字號</button>
+              <button class="tag-btn text-xs bg-slate-100 hover:bg-gov-100 hover:text-gov-800 text-slate-700 font-mono px-2 py-1 rounded-md border border-slate-200 transition" data-tag="{date}">+ {date} 日期</button>
+              <button class="tag-btn text-xs bg-slate-100 hover:bg-gov-100 hover:text-gov-800 text-slate-700 font-mono px-2 py-1 rounded-md border border-slate-200 transition" data-tag="{subject}">+ {subject} 主旨</button>
+              <button class="tag-btn text-xs bg-slate-100 hover:bg-gov-100 hover:text-gov-800 text-slate-700 font-mono px-2 py-1 rounded-md border border-slate-200 transition" data-tag="{recipient}">+ {recipient} 受文者</button>
+              <button class="tag-btn text-xs bg-slate-100 hover:bg-gov-100 hover:text-gov-800 text-slate-700 font-mono px-2 py-1 rounded-md border border-slate-200 transition" data-tag="{original_name}">+ {original_name} 原名</button>
+            </div>
+          </div>
+
+          <!-- Format Input Bar -->
+          <div class="space-y-3">
+            <div>
+              <div class="flex justify-between items-center mb-1">
+                <label for="naming-pattern" class="text-xs font-medium text-slate-700">自訂格式樣板 (副檔名將自動保留)</label>
+                <span class="text-xs text-slate-400">非法符號 / \ : * ? " &lt; &gt; | 將自動清洗為底線</span>
+              </div>
+              <input type="text" id="naming-pattern" value="[{agency}] {doc_no} - {subject}" 
+                class="w-full text-sm font-mono px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gov-600 focus:bg-white transition" 
+                placeholder="例如：[{agency}] {doc_no} - {subject}">
+            </div>
+
+            <!-- Options: Subject Length Limit & Date Format -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+              <div>
+                <label for="subject-limit" class="text-xs font-medium text-slate-600 mb-1 flex items-center justify-between">
+                  <span>主旨最大截斷字數 (防檔名超長)</span>
+                  <span id="subject-limit-val" class="font-bold text-gov-700">30 字</span>
+                </label>
+                <input type="range" id="subject-limit" min="10" max="80" value="30" class="w-full accent-gov-600">
+              </div>
+
+              <div>
+                <label for="date-format-select" class="block text-xs font-medium text-slate-600 mb-1">民國/西元日期呈現方式</label>
+                <select id="date-format-select" class="w-full text-xs px-2.5 py-1.5 border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-gov-600">
+                  <option value="raw">原始格式 (例: 113年05月20日)</option>
+                  <option value="roc_short">民國簡式 (例: 1130520)</option>
+                  <option value="iso">西元標準 (例: 2024-05-20)</option>
+                  <option value="iso_short">西元簡式 (例: 20240520)</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Real-time Pattern Preview Box -->
+        <div class="mt-4 p-2.5 rounded-lg bg-slate-100 border border-slate-200 flex items-center space-x-2 text-xs">
+          <span class="text-slate-500 font-medium shrink-0">規則預覽範例：</span>
+          <span id="naming-preview-example" class="font-mono text-gov-800 font-semibold truncate">[教育部] 臺教高(二)字第1130089201號 - 函知114學年度大學校院總量申請作業.pdf</span>
+        </div>
+      </section>
+
+    </div>
+
+    <!-- Batch Action Toolbar -->
+    <div class="bg-white rounded-xl border border-slate-200 p-4 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-3">
+      <div class="flex items-center space-x-3 flex-1">
+        <!-- Search filter -->
+        <div class="relative w-full max-w-xs">
+          <i data-lucide="search" class="w-4 h-4 absolute left-3 top-2.5 text-slate-400"></i>
+          <input type="text" id="search-input" placeholder="搜尋公文字號、主旨、機關..." class="text-xs pl-9 pr-3 py-2 w-full border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-gov-600">
+        </div>
+        <!-- Filter status -->
+        <select id="filter-status" class="text-xs px-3 py-2 border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-gov-600 text-slate-700">
+          <option value="all">全部公文狀態</option>
+          <option value="success">辨識成功</option>
+          <option value="partial">部分欄位缺漏</option>
+        </select>
+      </div>
+
+      <!-- Action Buttons -->
+      <div class="flex items-center space-x-2 shrink-0">
+        <!-- Export CSV summary -->
+        <button id="btn-export-csv" class="text-xs flex items-center bg-white hover:bg-slate-50 text-slate-700 font-medium px-3.5 py-2 rounded-lg border border-slate-300 transition shadow-sm">
+          <i data-lucide="sheet" class="w-3.5 h-3.5 mr-1.5 text-emerald-600"></i>
+          匯出收文清冊 (CSV)
+        </button>
+        <!-- Download All as ZIP -->
+        <button id="btn-download-all-zip" class="text-xs flex items-center bg-gov-700 hover:bg-gov-800 text-white font-medium px-4 py-2 rounded-lg transition shadow-md shadow-gov-700/20 disabled:opacity-50 disabled:cursor-not-allowed">
+          <i data-lucide="folder-archive" class="w-3.5 h-3.5 mr-1.5"></i>
+          打包全部新檔名下載 (ZIP)
+        </button>
+      </div>
+    </div>
+
+    <!-- Document Table Card -->
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
+      <div class="px-5 py-3.5 border-b border-slate-200 bg-slate-50/70 flex items-center justify-between">
+        <div class="flex items-center space-x-2">
+          <i data-lucide="list-checks" class="w-4 h-4 text-gov-700"></i>
+          <h3 class="text-sm font-bold text-slate-800">公文辨識與新檔名清單</h3>
+          <span id="table-record-count" class="text-xs text-slate-500 font-normal ml-2">(共 0 筆)</span>
+        </div>
+        <div class="text-xs text-slate-400">
+          💡 點擊欄位數值可直接在表格內手動微調校正
+        </div>
+      </div>
+
+      <!-- Table Container -->
+      <div class="overflow-x-auto min-h-[280px]">
+        <table class="w-full text-left border-collapse text-xs">
+          <thead>
+            <tr class="bg-slate-100 text-slate-600 border-b border-slate-200 font-semibold">
+              <th class="py-3 px-3 w-12 text-center">序號</th>
+              <th class="py-3 px-3 w-44">原始檔名 / 大小</th>
+              <th class="py-3 px-3 w-32">發文機關</th>
+              <th class="py-3 px-3 w-40">發文字號</th>
+              <th class="py-3 px-3 w-28">發文日期</th>
+              <th class="py-3 px-4 min-w-[200px]">公文主旨 (點擊可編輯)</th>
+              <th class="py-3 px-4 min-w-[220px]">變更後預期檔名</th>
+              <th class="py-3 px-3 w-24 text-center">操作</th>
+            </tr>
+          </thead>
+          <tbody id="document-table-body" class="divide-y divide-slate-100">
+            <!-- Empty State Placeholder -->
+            <tr id="empty-placeholder">
+              <td colspan="8" class="py-16 text-center text-slate-400">
+                <div class="flex flex-col items-center justify-center space-y-2">
+                  <div class="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 mb-1">
+                    <i data-lucide="inbox" class="w-6 h-6"></i>
+                  </div>
+                  <p class="text-sm font-medium text-slate-600">目前尚無公文檔案</p>
+                  <p class="text-xs text-slate-400">請從上方匯入 ZIP 壓縮包，或點擊右上角「載入範例公文包」體驗</p>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- Document Details / OCR Viewer Modal -->
+  <div id="modal-viewer" class="fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center p-4 hidden backdrop-blur-xs">
+    <div class="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden fade-in">
+      <div class="px-5 py-4 border-b border-slate-200 flex items-center justify-between bg-slate-50">
+        <div class="flex items-center space-x-2">
+          <i data-lucide="file-text" class="w-5 h-5 text-gov-700"></i>
+          <h3 class="text-sm font-bold text-slate-900" id="modal-title">公文內文與元資料詳情</h3>
+        </div>
+        <button id="modal-close-btn" class="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-200 transition">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <div class="p-5 overflow-y-auto space-y-4 flex-1 text-xs">
+        <!-- Extracted metadata grid -->
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-50 p-3 rounded-xl border border-slate-200">
+          <div>
+            <span class="text-slate-400 block mb-0.5">發文機關</span>
+            <span id="modal-agency" class="font-bold text-slate-800">-</span>
+          </div>
+          <div>
+            <span class="text-slate-400 block mb-0.5">發文字號</span>
+            <span id="modal-docno" class="font-bold text-gov-700 font-mono">-</span>
+          </div>
+          <div>
+            <span class="text-slate-400 block mb-0.5">發文日期</span>
+            <span id="modal-date" class="font-bold text-slate-800">-</span>
+          </div>
+          <div>
+            <span class="text-slate-400 block mb-0.5">受文者</span>
+            <span id="modal-recipient" class="font-bold text-slate-800">-</span>
+          </div>
+        </div>
+
+        <!-- Subject -->
+        <div>
+          <label class="block text-slate-500 font-semibold mb-1">公文主旨：</label>
+          <div id="modal-subject" class="bg-slate-50 p-3 rounded-lg border border-slate-200 text-slate-800 text-sm leading-relaxed font-sans select-text"></div>
+        </div>
+
+        <!-- Full Extracted Text / Raw Content -->
+        <div>
+          <label class="block text-slate-500 font-semibold mb-1">提取之公文全文 / XML 原文：</label>
+          <textarea id="modal-raw-text" readonly class="w-full h-48 bg-slate-900 text-slate-200 font-mono p-3 rounded-lg text-xs leading-5 select-text border border-slate-800"></textarea>
+        </div>
+      </div>
+
+      <div class="px-5 py-3 bg-slate-50 border-t border-slate-200 flex justify-end">
+        <button id="modal-done-btn" class="px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-lg text-xs font-medium">關閉預覽</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification Box -->
+  <div id="toast-container" class="fixed bottom-5 right-5 z-50 flex flex-col space-y-2 pointer-events-none"></div>
+
+  <!-- Processing Spinner Overlay -->
+  <div id="loading-overlay" class="fixed inset-0 bg-slate-900/40 z-50 flex items-center justify-center hidden backdrop-blur-[2px]">
+    <div class="bg-white px-6 py-5 rounded-2xl shadow-xl flex items-center space-x-4 border border-slate-100">
+      <div class="animate-spin text-gov-600">
+        <i data-lucide="loader-2" class="w-8 h-8"></i>
+      </div>
+      <div>
+        <p id="loading-text" class="text-sm font-bold text-slate-800">正在解壓與辨識公文資料...</p>
+        <p class="text-xs text-slate-400 mt-0.5">本地運算中，請稍候</p>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    /* State Management */
+    let documentList = []; // Array of processed document objects
+    let activeModalDoc = null;
+
+    /* DOM Elements */
+    const dropZone = document.getElementById('drop-zone');
+    const fileInput = document.getElementById('file-input');
+    const tableBody = document.getElementById('document-table-body');
+    const emptyPlaceholder = document.getElementById('empty-placeholder');
+    const namingPatternInput = document.getElementById('naming-pattern');
+    const subjectLimitSlider = document.getElementById('subject-limit');
+    const subjectLimitVal = document.getElementById('subject-limit-val');
+    const dateFormatSelect = document.getElementById('date-format-select');
+    const namingPreviewExample = document.getElementById('naming-preview-example');
+    const statFileCount = document.getElementById('stat-file-count');
+    const statRecognizedCount = document.getElementById('stat-recognized-count');
+    const tableRecordCount = document.getElementById('table-record-count');
+    const searchInput = document.getElementById('search-input');
+    const filterStatus = document.getElementById('filter-status');
+    const loadingOverlay = document.getElementById('loading-overlay');
+    const loadingText = document.getElementById('loading-text');
+
+    /* Initialize Lucide Icons */
+    function refreshIcons() {
+      if (window.lucide) {
+        lucide.createIcons();
+      }
+    }
+
+    /* Toast Notification Utility */
+    function showToast(message, type = 'info') {
+      const container = document.getElementById('toast-container');
+      const toast = document.createElement('div');
+      toast.className = `pointer-events-auto px-4 py-2.5 rounded-xl shadow-lg border text-xs font-medium flex items-center space-x-2 fade-in transition ${
+        type === 'success' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' :
+        type === 'error' ? 'bg-red-50 text-red-800 border-red-200' :
+        'bg-slate-900 text-white border-slate-800'
+      }`;
+
+      let icon = type === 'success' ? 'check-circle' : type === 'error' ? 'alert-circle' : 'info';
+      toast.innerHTML = `<i data-lucide="${icon}" class="w-4 h-4 shrink-0"></i><span>${message}</span>`;
+      container.appendChild(toast);
+      refreshIcons();
+
+      setTimeout(() => {
+        toast.style.opacity = '0';
+        setTimeout(() => toast.remove(), 300);
+      }, 3500);
+    }
+
+    function showLoading(text = '正在解壓與辨識公文資料...') {
+      loadingText.textContent = text;
+      loadingOverlay.classList.remove('hidden');
+      refreshIcons();
+    }
+
+    function hideLoading() {
+      loadingOverlay.classList.add('hidden');
+    }
+
+    /**
+     * Sanitizes strings for valid OS file naming
+     * Removes / \ : * ? " < > | and redundant whitespaces
+     */
+    function sanitizeFilename(name) {
+      if (!name) return '';
+      return name
+        .replace(/[\\/:*?"<>|]/g, '_')
+        .replace(/\s+/g, ' ')
+        .trim();
+    }
+
+    /**
+     * Standardizes and formats dates (ROC and AD)
+     */
+    function formatOfficialDate(rawDateStr, targetFormat) {
+      if (!rawDateStr) return '無日期';
+      
+      // Match patterns like 113年05月20日 or 113.05.20 or 2024-05-20
+      let year = '', month = '', day = '';
+
+      const rocMatch = rawDateStr.match(/([0-9０-９]{2,3})\s*年\s*([0-9０-９]{1,2})\s*月\s*([0-9０-９]{1,2})\s*日/);
+      const dotMatch = rawDateStr.match(/([0-9]{2,3})\.([0-9]{1,2})\.([0-9]{1,2})/);
+      const isoMatch = rawDateStr.match(/([1-2][0-9]{3})[-/]([0-9]{1,2})[-/]([0-9]{1,2})/);
+
+      if (rocMatch) {
+        year = rocMatch[1];
+        month = rocMatch[2].padStart(2, '0');
+        day = rocMatch[3].padStart(2, '0');
+      } else if (dotMatch) {
+        year = dotMatch[1];
+        month = dotMatch[2].padStart(2, '0');
+        day = dotMatch[3].padStart(2, '0');
+      } else if (isoMatch) {
+        const adYear = parseInt(isoMatch[1], 10);
+        year = String(adYear - 1911);
+        month = isoMatch[2].padStart(2, '0');
+        day = isoMatch[3].padStart(2, '0');
+      } else {
+        return rawDateStr;
+      }
+
+      const adYearFull = parseInt(year, 10) + 1911;
+
+      switch(targetFormat) {
+        case 'roc_short':
+          return `${year}${month}${day}`;
+        case 'iso':
+          return `${adYearFull}-${month}-${day}`;
+        case 'iso_short':
+          return `${adYearFull}${month}${day}`;
+        case 'raw':
+        default:
+          return `${year}年${month}月${day}日`;
+      }
+    }
+
+    /**
+     * Extracts Official Document Fields from Text using tailored Taiwan Government Patterns
+     */
+    function parseOfficialDocText(text) {
+      const data = {
+        agency: '',
+        docNo: '',
+        date: '',
+        recipient: '',
+        subject: '',
+        urgency: '普通件',
+        rawText: text
+      };
+
+      if (!text) return data;
+
+      // 1. Identify Issuing Agency (發文機關)
+      // Usually appears at top before "函", "令", "開會通知單", "公告"
+      const agencyMatch = text.match(/(?:^|\n)\s*([^\n\r]{2,25}?(?:院|部|會|署|局|處|司|所|府|學校|公所|公司|中心|委員會|鄉公所|鎮公所|區公所))\s*(?:函|令|開會通知單|公告)/);
+      if (agencyMatch) {
+        data.agency = agencyMatch[1].trim();
+      } else {
+        // Fallback: look for common government suffixes
+        const fallbackAgency = text.match(/([^\n\r\s]{2,15}(?:縣政府|市政府|國民小學|國民中學|大學|科技大學|公所))/);
+        if (fallbackAgency) data.agency = fallbackAgency[1].trim();
+      }
+
+      // 2. Identify Document Number (發文字號)
+      // e.g., 發文字號：府教特字第1130089201號 or 臺教高(二)字第1130000000號
+      const docNoMatch = text.match(/發文字號[：:\s]*([^\n\r]+?號)/);
+      if (docNoMatch) {
+        data.docNo = docNoMatch[1].replace(/\s+/g, '').trim();
+      } else {
+        // Broad search for 字第...號 pattern
+        const broadDocMatch = text.match(/([^\s\n\r:：]+字第[0-9A-Za-z\-]+號)/);
+        if (broadDocMatch) data.docNo = broadDocMatch[1].trim();
+      }
+
+      // 3. Identify Issue Date (發文日期)
+      // e.g., 中華民國113年5月20日 or 發文日期：中華民國 113 年 5 月 20 日
+      const dateMatch = text.match(/(?:中華民國\s*)?([0-9０-９]{2,3}\s*年\s*[0-9０-９]{1,2}\s*月\s*[0-9０-９]{1,2}\s*日)/);
+      if (dateMatch) {
+        data.date = dateMatch[1].replace(/\s+/g, '');
+      }
+
+      // 4. Identify Recipient (受文者)
+      const recipientMatch = text.match(/受文者[：:\s]*([^\n\r]+)/);
+      if (recipientMatch) {
+        data.recipient = recipientMatch[1].trim();
+      }
+
+      // 5. Identify Subject (主旨)
+      // Matches text between 主旨： and 說明：/ 正本：/ 副本：/ 受文者：
+      const subjectMatch = text.match(/主旨[：:\s]*([\s\S]+?)(?=(?:\n\s*說明[：:\s]|\n\s*正本[：:\s]|\n\s*副本[：:\s]|\n\s*受文者[：:\s]|\n\s*附件[：:\s]|$))/);
+      if (subjectMatch) {
+        data.subject = subjectMatch[1].replace(/[\r\n\t]+/g, ' ').replace(/\s+/g, ' ').trim();
+      }
+
+      // 6. Urgency (速別)
+      const urgencyMatch = text.match(/速別[：:\s]*([^\n\r]+)/);
+      if (urgencyMatch) {
+        data.urgency = urgencyMatch[1].trim();
+      }
+
+      return data;
+    }
+
+    /**
+     * Parses official Taiwan E-Document XML or .DI descriptor files
+     */
+    function parseOfficialDocXML(xmlString) {
+      const data = {
+        agency: '',
+        docNo: '',
+        date: '',
+        recipient: '',
+        subject: '',
+        urgency: '普通件',
+        rawText: xmlString
+      };
+
+      try {
+        const parser = new DOMParser();
+        const xmlDoc = parser.parseFromString(xmlString, "text/xml");
+
+        // Helper to query multiple common XML tag variations used by e-Gov exchange
+        const getTagValue = (tags) => {
+          for (const t of tags) {
+            const el = xmlDoc.querySelector(t);
+            if (el && el.textContent) return el.textContent.trim();
+          }
+          return '';
+        };
+
+        data.agency = getTagValue(['發文機關', '機關名稱', 'sender', 'orgName', 'SenderOrgName', '發文者']);
+        data.docNo = getTagValue(['發文字號', '文號', 'docNum', 'DocNo', '發文字']);
+        data.date = getTagValue(['發文日期', 'docDate', 'IssueDate', '日期']);
+        data.subject = getTagValue(['主旨', '事由', 'subject', 'Subject', 'title']);
+        data.recipient = getTagValue(['受文者', '正本', 'receiver', 'ReceiverOrgName']);
+        data.urgency = getTagValue(['速別', 'urgency', 'Urgency']) || '普通件';
+
+        // If tag query yielded nothing, fall back to regex on raw text
+        if (!data.docNo || !data.subject) {
+          const fallback = parseOfficialDocText(xmlString);
+          data.agency = data.agency || fallback.agency;
+          data.docNo = data.docNo || fallback.docNo;
+          data.date = data.date || fallback.date;
+          data.subject = data.subject || fallback.subject;
+        }
+      } catch (e) {
+        console.error("XML parse error", e);
+      }
+
+      return data;
+    }
+
+    /**
+     * Reads PDF text content page by page using PDF.js
+     */
+    async function extractTextFromPDF(arrayBuffer) {
+      try {
+        const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
+        const pdf = await loadingTask.promise;
+        let fullText = '';
+        
+        // Scan first 3 pages (official metadata is always on page 1)
+        const pagesToScan = Math.min(pdf.numPages, 3);
+        for (let i = 1; i <= pagesToScan; i++) {
+          const page = await pdf.getPage(i);
+          const tokenizedText = await page.getTextContent();
+          const pageString = tokenizedText.items.map(item => item.str).join(' ');
+          fullText += pageString + '\n';
+        }
+        return fullText;
+      } catch (err) {
+        console.warn("PDF extraction failed or scanned-image-only PDF", err);
+        return '';
+      }
+    }
+
+    /**
+     * Recursive processor for files and ZIP entries
+     */
+    async function processFileEntry(name, arrayBuffer, originalFileObj = null) {
+      const ext = name.slice((name.lastIndexOf(".") - 1 >>> 0) + 2).toLowerCase();
+      const baseNameWithoutExt = name.substring(0, name.lastIndexOf('.')) || name;
+
+      // Check if it's a nested or primary ZIP file
+      if (ext === 'zip') {
+        try {
+          const zip = await JSZip.loadAsync(arrayBuffer);
+          const zipFiles = Object.keys(zip.files);
+          
+          for (const filename of zipFiles) {
+            const entry = zip.files[filename];
+            if (!entry.dir) {
+              const contentBuffer = await entry.async("arraybuffer");
+              await processFileEntry(entry.name, contentBuffer);
+            }
+          }
+        } catch (zipErr) {
+          showToast(`解壓縮 ${name} 失敗，檔案可能已損毀`, 'error');
+        }
+        return;
+      }
+
+      // Metadata container
+      let parsedInfo = {
+        agency: '',
+        docNo: '',
+        date: '',
+        recipient: '',
+        subject: '',
+        urgency: '',
+        rawText: ''
+      };
+
+      if (ext === 'pdf') {
+        const pdfText = await extractTextFromPDF(arrayBuffer);
+        parsedInfo = parseOfficialDocText(pdfText);
+      } else if (ext === 'xml' || ext === 'di') {
+        const decoder = new TextDecoder('utf-8');
+        let text = decoder.decode(arrayBuffer);
+        // If Big5 or garbled, allow standard XML read
+        parsedInfo = parseOfficialDocXML(text);
+      } else if (ext === 'txt') {
+        const decoder = new TextDecoder('utf-8');
+        const text = decoder.decode(arrayBuffer);
+        parsedInfo = parseOfficialDocText(text);
+      }
+
+      // Default fallback values if recognition is incomplete
+      const fileId = 'doc_' + Math.random().toString(36).substr(2, 9);
+      const isRecognized = Boolean(parsedInfo.docNo || parsedInfo.subject || parsedInfo.agency);
+
+      const docItem = {
+        id: fileId,
+        originalName: name,
+        cleanBaseName: baseNameWithoutExt,
+        extension: ext,
+        size: arrayBuffer.byteLength,
+        buffer: arrayBuffer,
+        agency: parsedInfo.agency || '未辨識機關',
+        docNo: parsedInfo.docNo || '無文號',
+        date: parsedInfo.date || '無日期',
+        recipient: parsedInfo.recipient || '本機關',
+        subject: parsedInfo.subject || baseNameWithoutExt,
+        urgency: parsedInfo.urgency || '普通件',
+        rawText: parsedInfo.rawText || '(無純文字提取資料)',
+        status: (parsedInfo.docNo && parsedInfo.subject) ? 'success' : 'partial'
+      };
+
+      documentList.push(docItem);
+    }
+
+    /**
+     * Calculates the new filename for a given document item based on rules
+     */
+    function computeNewFilename(item, index) {
+      const pattern = namingPatternInput.value.trim() || "{agency}_{doc_no}_{subject}";
+      const maxSubjectLen = parseInt(subjectLimitSlider.value, 10) || 30;
+      const targetDateFormat = dateFormatSelect.value;
+
+      // Truncate subject if needed
+      let truncatedSubject = item.subject || '';
+      if (truncatedSubject.length > maxSubjectLen) {
+        truncatedSubject = truncatedSubject.substring(0, maxSubjectLen) + '…';
+      }
+
+      const formattedDate = formatOfficialDate(item.date, targetDateFormat);
+
+      // Replace variables
+      let result = pattern
+        .replace(/\{agency\}/gi, item.agency || '機關')
+        .replace(/\{doc_no\}/gi, item.docNo || '無文號')
+        .replace(/\{date\}/gi, formattedDate)
+        .replace(/\{subject\}/gi, truncatedSubject || '無主旨')
+        .replace(/\{recipient\}/gi, item.recipient || '受文者')
+        .replace(/\{original_name\}/gi, item.cleanBaseName)
+        .replace(/\{index\}/gi, String(index + 1).padStart(2, '0'));
+
+      // Sanitize forbidden filename characters
+      result = sanitizeFilename(result);
+
+      // Append extension
+      if (item.extension) {
+        result += `.${item.extension}`;
+      }
+
+      return result;
+    }
+
+    /**
+     * Resolves duplicate filenames by appending sequential suffixes (_01, _02)
+     */
+    function calculateAllUniqueFilenames() {
+      const nameCountMap = new Map();
+      return documentList.map((doc, idx) => {
+        let baseNewName = computeNewFilename(doc, idx);
+        
+        if (nameCountMap.has(baseNewName)) {
+          const count = nameCountMap.get(baseNewName) + 1;
+          nameCountMap.set(baseNewName, count);
+
+          // Split name and extension
+          const dotIdx = baseNewName.lastIndexOf('.');
+          if (dotIdx > 0) {
+            const namePart = baseNewName.substring(0, dotIdx);
+            const extPart = baseNewName.substring(dotIdx);
+            return `${namePart}_${count}${extPart}`;
+          } else {
+            return `${baseNewName}_${count}`;
+          }
+        } else {
+          nameCountMap.set(baseNewName, 1);
+          return baseNewName;
+        }
+      });
+    }
+
+    /* Update Table and Stats UI */
+    function renderTable() {
+      const searchQuery = searchInput.value.toLowerCase().trim();
+      const statusFilter = filterStatus.value;
+      const uniqueFilenames = calculateAllUniqueFilenames();
+
+      tableBody.innerHTML = '';
+
+      const filteredDocs = documentList.filter((doc, idx) => {
+        const matchesSearch = 
+          doc.originalName.toLowerCase().includes(searchQuery) ||
+          doc.agency.toLowerCase().includes(searchQuery) ||
+          doc.docNo.toLowerCase().includes(searchQuery) ||
+          doc.subject.toLowerCase().includes(searchQuery);
+
+        const matchesStatus = statusFilter === 'all' || doc.status === statusFilter;
+        return matchesSearch && matchesStatus;
+      });
+
+      if (filteredDocs.length === 0) {
+        tableBody.appendChild(emptyPlaceholder);
+      } else {
+        filteredDocs.forEach((doc) => {
+          const realIndex = documentList.indexOf(doc);
+          const newName = uniqueFilenames[realIndex];
+
+          const tr = document.createElement('tr');
+          tr.className = "hover:bg-slate-50/90 transition text-slate-700 group";
+
+          tr.innerHTML = `
+            <td class="py-3 px-3 text-center text-slate-400 font-mono text-xs">${realIndex + 1}</td>
+            <td class="py-3 px-3">
+              <div class="font-medium text-slate-800 truncate max-w-[170px]" title="${doc.originalName}">${doc.originalName}</div>
+              <div class="text-[11px] text-slate-400 font-mono">${(doc.size / 1024).toFixed(1)} KB</div>
+            </td>
+            <td class="py-3 px-3">
+              <input type="text" value="${doc.agency}" data-id="${doc.id}" data-field="agency" 
+                class="field-edit w-full bg-transparent hover:bg-white focus:bg-white border border-transparent hover:border-slate-300 focus:border-gov-600 rounded px-1.5 py-0.5 font-medium text-slate-800 transition">
+            </td>
+            <td class="py-3 px-3">
+              <input type="text" value="${doc.docNo}" data-id="${doc.id}" data-field="docNo" 
+                class="field-edit w-full bg-transparent hover:bg-white focus:bg-white border border-transparent hover:border-slate-300 focus:border-gov-600 rounded px-1.5 py-0.5 font-mono text-gov-700 font-medium transition">
+            </td>
+            <td class="py-3 px-3">
+              <input type="text" value="${doc.date}" data-id="${doc.id}" data-field="date" 
+                class="field-edit w-full bg-transparent hover:bg-white focus:bg-white border border-transparent hover:border-slate-300 focus:border-gov-600 rounded px-1.5 py-0.5 text-slate-600 transition">
+            </td>
+            <td class="py-3 px-4">
+              <input type="text" value="${doc.subject}" data-id="${doc.id}" data-field="subject" 
+                class="field-edit w-full bg-transparent hover:bg-white focus:bg-white border border-transparent hover:border-slate-300 focus:border-gov-600 rounded px-1.5 py-0.5 text-slate-800 font-medium transition" title="${doc.subject}">
+            </td>
+            <td class="py-3 px-4">
+              <div class="font-mono text-xs font-semibold text-emerald-700 bg-emerald-50/70 border border-emerald-200/70 rounded-md px-2 py-1 truncate max-w-[240px]" title="${newName}">
+                ${newName}
+              </div>
+            </td>
+            <td class="py-3 px-3 text-center">
+              <div class="flex items-center justify-center space-x-1">
+                <button class="btn-inspect p-1.5 text-slate-500 hover:text-gov-700 hover:bg-gov-50 rounded-lg transition" title="查看公文內文與元數據" data-id="${doc.id}">
+                  <i data-lucide="eye" class="w-4 h-4"></i>
+                </button>
+                <button class="btn-download-single p-1.5 text-slate-500 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition" title="單獨下載更名檔案" data-id="${doc.id}" data-newname="${newName}">
+                  <i data-lucide="download" class="w-4 h-4"></i>
+                </button>
+                <button class="btn-delete-row p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition" title="移除此項目" data-id="${doc.id}">
+                  <i data-lucide="x" class="w-4 h-4"></i>
+                </button>
+              </div>
+            </td>
+          `;
+
+          tableBody.appendChild(tr);
+        });
+      }
+
+      // Update Top Status Badges
+      const successCount = document.documentList = documentList.filter(d => d.status === 'success').length;
+      statFileCount.textContent = `已匯入：${documentList.length} 筆檔案`;
+      statRecognizedCount.textContent = `辨識成功：${successCount} 筆`;
+      tableRecordCount.textContent = `(共 ${documentList.length} 筆)`;
+
+      updatePreviewExample();
+      refreshIcons();
+    }
+
+    function updatePreviewExample() {
+      const mockDoc = {
+        agency: '教育部',
+        docNo: '臺教高(二)字第1130089201號',
+        date: '113年05月20日',
+        subject: '函知114學年度大專校院申請總量增設調整案作業流程',
+        recipient: '各公私立大專校院',
+        cleanBaseName: 'sample_doc',
+        extension: 'pdf'
+      };
+      namingPreviewExample.textContent = computeNewFilename(mockDoc, 0);
+    }
+
+    // Drag and Drop Upload
+    dropZone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropZone.classList.add('border-gov-600', 'bg-gov-50/50');
+    });
+
+    dropZone.addEventListener('dragleave', () => {
+      dropZone.classList.remove('border-gov-600', 'bg-gov-50/50');
+    });
+
+    dropZone.addEventListener('drop', async (e) => {
+      e.preventDefault();
+      dropZone.classList.remove('border-gov-600', 'bg-gov-50/50');
+      const files = Array.from(e.dataTransfer.files);
+      if (files.length > 0) {
+        await handleIncomingFiles(files);
+      }
+    });
+
+    dropZone.addEventListener('click', () => fileInput.click());
+
+    fileInput.addEventListener('change', async (e) => {
+      const files = Array.from(e.target.files);
+      if (files.length > 0) {
+        await handleIncomingFiles(files);
+      }
+      fileInput.value = '';
+    });
+
+    async function handleIncomingFiles(files) {
+      showLoading(`正在解壓縮並辨識 ${files.length} 個檔案...`);
+      try {
+        for (const f of files) {
+          const buffer = await f.arrayBuffer();
+          await processFileEntry(f.name, buffer, f);
+        }
+        showToast(`成功處理檔案，共載入 ${documentList.length} 筆公文`, 'success');
+      } catch (err) {
+        console.error(err);
+        showToast('處理檔案過程中發生錯誤', 'error');
+      } finally {
+        hideLoading();
+        renderTable();
+      }
+    }
+
+    // Editable cell event
+    tableBody.addEventListener('input', (e) => {
+      if (e.target.classList.contains('field-edit')) {
+        const id = e.target.dataset.id;
+        const field = e.target.dataset.field;
+        const doc = documentList.find(d => d.id === id);
+        if (doc) {
+          doc[field] = e.target.value;
+          // Re-render unique filenames in next animation frame
+          const uniqueNames = calculateAllUniqueFilenames();
+          const tr = e.target.closest('tr');
+          const realIndex = documentList.indexOf(doc);
+          const previewDiv = tr.querySelector('.bg-emerald-50\\/70');
+          if (previewDiv) {
+            previewDiv.textContent = uniqueNames[realIndex];
+            previewDiv.title = uniqueNames[realIndex];
+          }
+        }
+      }
+    });
+
+    // Row action buttons
+    tableBody.addEventListener('click', (e) => {
+      const inspectBtn = e.target.closest('.btn-inspect');
+      const downloadBtn = e.target.closest('.btn-download-single');
+      const deleteBtn = e.target.closest('.btn-delete-row');
+
+      if (inspectBtn) {
+        const doc = documentList.find(d => d.id === inspectBtn.dataset.id);
+        if (doc) openDetailModal(doc);
+      } else if (downloadBtn) {
+        const doc = documentList.find(d => d.id === downloadBtn.dataset.id);
+        const filename = downloadBtn.dataset.newname;
+        if (doc) {
+          const blob = new Blob([doc.buffer]);
+          saveAs(blob, filename);
+          showToast(`已下載：${filename}`, 'success');
+        }
+      } else if (deleteBtn) {
+        const id = deleteBtn.dataset.id;
+        documentList = documentList.filter(d => d.id !== id);
+        renderTable();
+        showToast('已移除該項公文', 'info');
+      }
+    });
+
+    // Modal Operations
+    const modalViewer = document.getElementById('modal-viewer');
+    function openDetailModal(doc) {
+      activeModalDoc = doc;
+      document.getElementById('modal-title').textContent = `公文詳情：${doc.originalName}`;
+      document.getElementById('modal-agency').textContent = doc.agency || '未辨識';
+      document.getElementById('modal-docno').textContent = doc.docNo || '無文號';
+      document.getElementById('modal-date').textContent = doc.date || '無日期';
+      document.getElementById('modal-recipient').textContent = doc.recipient || '無';
+      document.getElementById('modal-subject').textContent = doc.subject || '無主旨說明';
+      document.getElementById('modal-raw-text').value = doc.rawText || '(無純文字萃取內容)';
+      modalViewer.classList.remove('hidden');
+    }
+
+    document.getElementById('modal-close-btn').addEventListener('click', () => modalViewer.classList.add('hidden'));
+    document.getElementById('modal-done-btn').addEventListener('click', () => modalViewer.classList.add('hidden'));
+    modalViewer.addEventListener('click', (e) => {
+      if (e.target === modalViewer) modalViewer.classList.add('hidden');
+    });
+
+    // Configuration Inputs
+    namingPatternInput.addEventListener('input', () => {
+      renderTable();
+    });
+
+    subjectLimitSlider.addEventListener('input', (e) => {
+      subjectLimitVal.textContent = `${e.target.value} 字`;
+      renderTable();
+    });
+
+    dateFormatSelect.addEventListener('change', () => {
+      renderTable();
+    });
+
+    // Preset Rules
+    document.querySelectorAll('.rule-preset').forEach(btn => {
+      btn.addEventListener('click', () => {
+        namingPatternInput.value = btn.dataset.format;
+        renderTable();
+        showToast(`已套用規則：${btn.textContent}`, 'info');
+      });
+    });
+
+    // Tag Insertion
+    document.querySelectorAll('.tag-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        namingPatternInput.value += btn.dataset.tag;
+        renderTable();
+      });
+    });
+
+    // Clear All
+    document.getElementById('btn-clear-all').addEventListener('click', () => {
+      if (documentList.length === 0) return;
+      documentList = [];
+      renderTable();
+      showToast('已清空工作台清單', 'info');
+    });
+
+    // Search and Filter
+    searchInput.addEventListener('input', renderTable);
+    filterStatus.addEventListener('change', renderTable);
+
+    // Batch Download All as ZIP
+    document.getElementById('btn-download-all-zip').addEventListener('click', async () => {
+      if (documentList.length === 0) {
+        showToast('目前清單無可下載之公文', 'error');
+        return;
+      }
+
+      showLoading('正在批次重新命名並打包 ZIP 壓縮檔...');
+      try {
+        const outZip = new JSZip();
+        const uniqueNames = calculateAllUniqueFilenames();
+
+        documentList.forEach((doc, idx) => {
+          const newFilename = uniqueNames[idx];
+          outZip.file(newFilename, doc.buffer);
+        });
+
+        const zipBlob = await outZip.generateAsync({ type: 'blob' });
+        const timeStamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+        saveAs(zipBlob, `公文更名打包_${timeStamp}.zip`);
+        showToast(`成功打包下載 ${documentList.length} 份公文檔案！`, 'success');
+      } catch (err) {
+        console.error(err);
+        showToast('打包下載失敗，請稍候重試', 'error');
+      } finally {
+        hideLoading();
+      }
+    });
+
+    // Export CSV Summary
+    document.getElementById('btn-export-csv').addEventListener('click', () => {
+      if (documentList.length === 0) {
+        showToast('目前清單無資料可供匯出清冊', 'error');
+        return;
+      }
+
+      const uniqueNames = calculateAllUniqueFilenames();
+      // Add UTF-8 BOM for Excel Traditional Chinese compatibility
+      let csvContent = '\uFEFF';
+      csvContent += '序號,發文機關,發文字號,發文日期,受文者,公文主旨,原始檔名,新檔名,檔案大小(KB)\n';
+
+      documentList.forEach((doc, idx) => {
+        const escapeCSV = (str) => `"${(str || '').replace(/"/g, '""')}"`;
+        const row = [
+          idx + 1,
+          escapeCSV(doc.agency),
+          escapeCSV(doc.docNo),
+          escapeCSV(doc.date),
+          escapeCSV(doc.recipient),
+          escapeCSV(doc.subject),
+          escapeCSV(doc.originalName),
+          escapeCSV(uniqueNames[idx]),
+          (doc.size / 1024).toFixed(1)
+        ];
+        csvContent += row.join(',') + '\n';
+      });
+
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      saveAs(blob, `公文收發登記清冊_${new Date().toISOString().slice(0,10)}.csv`);
+      showToast('已匯出公文登記清冊 CSV', 'success');
+    });
+
+    // Demo Pack Generator for testing
+    document.getElementById('btn-load-demo').addEventListener('click', async () => {
+      showLoading('正在產生標準公文範例包 (ZIP)...');
+
+      try {
+        const demoZip = new JSZip();
+
+        // 1. Electronic Document Exchange XML (標準公文交換格式)
+        const diXML = `<?xml version="1.0" encoding="UTF-8"?>
+<交換公文>
+  <發文機關>教育部</發文機關>
+  <發文字號>臺教高(二)字第1130098765號</發文字號>
+  <發文日期>中華民國113年09月15日</發文日期>
+  <受文者>國立臺灣大學</受文者>
+  <主旨>檢送本部114學年度各大專校院教學卓越研究獎勵補助申請原則乙份，請查照轉知。</主旨>
+  <速別>普通件</速別>
+</交換公文>`;
+        demoZip.file("metadata_edu_1130098765.di", diXML);
+
+        // 2. Municipal Government Document (市府公文)
+        const txtDoc1 = `
+臺北市政府文化局 函
+地址：11008臺北市信義區市府路1號
+聯絡人：林承辦人
+電話：02-27208889
+
+受文者：財團法人文化藝術基金會
+發文日期：中華民國113年10月01日
+發文字號：北市武字第11330452100號
+速別：最速件
+密等及解密條件或保密期限：普通
+
+主旨：本局訂於113年11月5日召開「114年度臺北市老舊歷史建物活化補助審查會」，請指派業務主管出席，請查照。
+
+說明：
+一、依文化資產保存法及本府相關輔導要點辦理。
+二、會議地點：本府市政大樓4樓會議室。
+
+正本：財團法人文化藝術基金會
+副本：本局各科室
+`;
+        demoZip.file("DOC_TAIPEI_CULTURE_NOTICE.txt", txtDoc1);
+
+        // 3. Central Ministry Document (中央部會函)
+        const txtDoc2 = `
+數位發展部 函
+發文日期：中華民國113年11月20日
+發文字號：數位產字第1134001928號
+速別：普通件
+受文者：各直轄市政府、各縣市政府
+
+主旨：公告修正「政府數位轉型與公務資料安全自主檢核指標」草案，請於文到14日內提供修正意見，請查照。
+
+說明：
+一、本部為提升全國公務機關資訊系統面對勒索軟體防護韌性特訂定旨揭草案。
+`;
+        demoZip.file("數位發展部函稿_1134001928.txt", txtDoc2);
+
+        // Generate and process the mock zip
+        const zipBlob = await demoZip.generateAsync({ type: 'arraybuffer' });
+        await processFileEntry("標準公文測試交換包.zip", zipBlob);
+
+        showToast('已成功載入 3 筆標準臺灣公文範例！', 'success');
+      } catch (err) {
+        console.error(err);
+        showToast('載入範例公文失敗', 'error');
+      } finally {
+        hideLoading();
+        renderTable();
+      }
+    });
+
+    // Initial render
+    renderTable();
+  </script>
+</body>
+</html>
